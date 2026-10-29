@@ -13,7 +13,7 @@ export type LiveStream = {
 
 export type User = {
     id: string;
-    username: string;
+    handle: string;
     name: string;
     avatar_url: string | null;
     bio: string | null;
@@ -44,7 +44,9 @@ export type Profile = User & {
  */
 export type Auth = {
     user: Profile | null;
+    bioProfiles: Record<string, string>;
     isAdmin: boolean;
+    automaticTranslation: boolean;
     mustReadCommitRules: boolean;
     log: Log | null;
     unreadNotificationsCount: number;

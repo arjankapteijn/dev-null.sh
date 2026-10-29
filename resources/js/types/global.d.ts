@@ -1,3 +1,4 @@
+import type { SharedClock } from '@/lib/utils';
 import type { Auth, SuggestedUser, User } from '@/types/auth';
 import type { Commit } from '@/types/commit';
 import type {
@@ -17,6 +18,7 @@ declare module '@inertiajs/core' {
             deleted?: DeletedFlash;
             restored?: Commit;
             scheduled?: boolean;
+            submitted?: string;
             localSignIn?: boolean;
             signedUp?: boolean;
         };
@@ -24,11 +26,16 @@ declare module '@inertiajs/core' {
             name: string;
             repository: string;
             auth: Auth;
+            /** For guests: how many developers are here, rounded down (12,000). */
+            developersCount: number | null;
             hasUnmoderatedCommits: boolean;
             sidebarOpen: boolean;
             showsWhoToFollow: boolean;
             dimsLanes: boolean;
             repliesPerPage: number;
+            clock: SharedClock;
+            /** When the server rendered the page, in milliseconds. */
+            now: number;
             suggestedUsers?: SuggestedUser[];
             liveFollowing?: User[];
             [key: string]: unknown;
