@@ -261,7 +261,7 @@ it('checks the image descriptions and poll options along with the body', functio
         && $request['input'][0] === ['type' => 'text', 'text' => "Which editor?\n\nA screenshot\n\nVim\n\nEmacs"]);
 
     Http::assertSent(fn (Request $request): bool => str_ends_with($request->url(), '/responses')
-        && $request['text']['format']['name'] === 'harmful'
+        && $request['text']['format']['schema']['required'] === ['harmful']
         && $request['input'][1]['content'] === [['type' => 'input_text', 'text' => "Which editor?\n\nA screenshot\n\nVim\n\nEmacs"]]);
 });
 
