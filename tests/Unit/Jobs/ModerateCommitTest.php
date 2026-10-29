@@ -292,6 +292,28 @@ it('keeps a commit pending when only its image descriptions or poll options are 
         ->status->toBe(CommitStatus::Pending);
 })->with(['image description', 'poll option']);
 
+it('checks the image description of a commit without a body as its text', function (): void {
+    Storage::fake();
+    Storage::put('commit-images/first.webp', 'first');
+
+    Http::fake([
+        'api.openai.com/v1/moderations' => Http::response(moderationResponse()),
+        'api.openai.com/v1/responses' => reviewResponses(),
+    ]);
+
+    $commit = Commit::factory()->pending()->create(['body' => '']);
+    CommitImage::factory()->for($commit)->create(['path' => 'commit-images/first.webp', 'position' => 0, 'description' => 'A screenshot']);
+
+    dispatch_sync(new ModerateCommit($commit));
+
+    Http::assertSent(fn (Request $request): bool => str_ends_with($request->url(), '/moderations')
+        && $request['input'][0] === ['type' => 'text', 'text' => 'A screenshot']);
+
+    Http::assertSent(fn (Request $request): bool => str_ends_with($request->url(), '/responses')
+        && $request['text']['format']['schema']['required'] === ['harmful']
+        && $request['input'][1]['content'] === [['type' => 'input_text', 'text' => 'A screenshot']]);
+});
+
 it('checks only the images of a commit without a body', function (): void {
     Storage::fake();
     Storage::put('commit-images/first.webp', 'first');
