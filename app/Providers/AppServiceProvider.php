@@ -68,6 +68,11 @@ final class AppServiceProvider extends ServiceProvider
 
     private function bootRateLimitingDefaults(): void
     {
+        // Each email costs us sender reputation, so a network gets a few an hour...
+        RateLimiter::for('join-links', fn (Request $request): Limit => Limit::perHour(3)->by((string) $request->ip())->response(
+            fn (): RedirectResponse => back()->withErrors(['email' => __('Too many links sent from here. Try again later.')]),
+        ));
+
         RateLimiter::for('commit-reports', fn (Request $request): Limit => Limit::perMinute(5)->by($this->userId($request)));
 
         // Every sync costs four GitHub API requests, out of a shared hourly budget. The mobile app shares it, and gets the
@@ -120,6 +125,15 @@ final class AppServiceProvider extends ServiceProvider
         RateLimiter::for('conversations', fn (Request $request): Limit => Limit::perMinute(300)->by($this->userId($request)));
         RateLimiter::for('messages', fn (Request $request): Limit => Limit::perMinute(30)->by($this->userId($request)));
 
+        // Pings: MSN wouldn't let you ping that often either...
+        RateLimiter::for('pings', fn (Request $request): Limit => Limit::perMinute(3)
+            ->by($this->userId($request))
+            ->response(fn (Request $request, array $headers): JsonResponse => response()->json(
+                ['message' => 'Three pings a minute, tops. Try again in a bit.'],
+                429,
+                $headers,
+            )));
+
         // Social graph...
         RateLimiter::for('follows', fn (Request $request): Limit => Limit::perMinute(30)->by($this->userId($request)));
 
@@ -143,6 +157,11 @@ final class AppServiceProvider extends ServiceProvider
                 429,
                 $headers,
             )));
+
+        // Every commit page asks for its related commits, a vector index scan with no outside call...
+        RateLimiter::for('related-commits', fn (Request $request): Limit => Limit::perMinute(60)->by(
+            $request->user() instanceof User ? $this->userId($request) : 'ip:'.$request->ip(),
+        ));
 
         // Exports stream every commit a user ever made...
         RateLimiter::for('exports', fn (Request $request): Limit => Limit::perHour(3)->by($this->userId($request)));
