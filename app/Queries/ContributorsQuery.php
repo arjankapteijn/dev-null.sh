@@ -24,6 +24,8 @@ final readonly class ContributorsQuery
 
     private const int FailedTtl = 60;
 
+    private const int LastTtl = 604800;
+
     /**
      * GitHub reports them as ordinary accounts, so they are named rather than detected.
      */
@@ -61,7 +63,8 @@ final readonly class ContributorsQuery
     }
 
     /**
-     * Whether the user is a contributor, found by their GitHub account. False while GitHub can't say.
+     * Whether the user is a contributor, found by their GitHub account. False while GitHub can't say and there is no
+     * recent list to fall back on.
      */
     public function includes(User $user): bool
     {
@@ -69,7 +72,8 @@ final readonly class ContributorsQuery
     }
 
     /**
-     * The GitHub accounts behind the contributors. A failed read is kept for a minute, so an outage doesn't send every
+     * The GitHub accounts behind the contributors. When GitHub doesn't answer, the last list it gave in the past week is
+     * kept for a minute instead, or null when there is none, so an outage neither empties the list nor sends every
      * visitor to GitHub.
      *
      * @return list<Account>|null
@@ -111,7 +115,14 @@ final readonly class ContributorsQuery
                 $contributors = false;
             }
 
-            Cache::put($key, $contributors, $contributors === false ? self::FailedTtl : self::Ttl);
+            if ($contributors === false) {
+                /** @var list<Account>|false $contributors */
+                $contributors = Cache::get("{$key}:last", false);
+                Cache::put($key, $contributors, self::FailedTtl);
+            } else {
+                Cache::put("{$key}:last", $contributors, self::LastTtl);
+                Cache::put($key, $contributors, self::Ttl);
+            }
         }
 
         return $contributors === false ? null : $contributors;

@@ -151,6 +151,41 @@ it('discards a partial list after a later page fails and recovers when the failu
     $github->shouldHaveReceived('contributors')->times(3);
 });
 
+it('keeps the last list for a minute while GitHub is unreachable, then asks again', function (): void {
+    $github = $this->mock(GitHubProvider::class);
+    $github->shouldReceive('contributors')->andReturnUsing(
+        fn (): array => [gitHubContributor('xHeaven', 187)],
+        fn () => throw new ConnectionException('timeout'),
+        fn (): array => [gitHubContributor('xHeaven', 188)],
+    );
+    $contributor = User::factory()->create(['github_id' => (string) crc32('xHeaven')]);
+
+    resolve(ContributorsQuery::class)->get();
+    $this->travel(61)->minutes();
+
+    expect(resolve(ContributorsQuery::class)->get())->toBe([['login' => 'xHeaven', 'commits' => 187, 'handle' => $contributor->handle]])
+        ->and(resolve(ContributorsQuery::class)->includes($contributor))->toBeTrue();
+    $github->shouldHaveReceived('contributors')->times(2);
+
+    $this->travel(61)->seconds();
+
+    expect(resolve(ContributorsQuery::class)->get())->toBe([['login' => 'xHeaven', 'commits' => 188, 'handle' => $contributor->handle]]);
+    $github->shouldHaveReceived('contributors')->times(3);
+});
+
+it('forgets the last list after a week without an answer from GitHub', function (): void {
+    $github = $this->mock(GitHubProvider::class);
+    $github->shouldReceive('contributors')->andReturnUsing(
+        fn (): array => [gitHubContributor('xHeaven', 187)],
+        fn () => throw new ConnectionException('timeout'),
+    );
+
+    resolve(ContributorsQuery::class)->get();
+    $this->travel(8)->days();
+
+    expect(resolve(ContributorsQuery::class)->get())->toBeNull();
+});
+
 it('includes a user by their GitHub account, not their handle', function (): void {
     $github = $this->mock(GitHubProvider::class);
     $github->shouldReceive('contributors')->andReturn([gitHubContributor('xHeaven', 187)]);
