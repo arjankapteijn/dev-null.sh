@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use App\Contracts\Services\GitHubProvider;
+use App\Models\User;
 use App\Queries\ContributorsQuery;
 use GuzzleHttp\Psr7\Response as Psr7Response;
 use Illuminate\Http\Client\ConnectionException;
@@ -148,4 +149,24 @@ it('discards a partial list after a later page fails and recovers when the failu
 
     expect(resolve(ContributorsQuery::class)->get())->toBe([['login' => 'recovered', 'commits' => 12, 'handle' => null]]);
     $github->shouldHaveReceived('contributors')->times(3);
+});
+
+it('includes a user by their GitHub account, not their handle', function (): void {
+    $github = $this->mock(GitHubProvider::class);
+    $github->shouldReceive('contributors')->andReturn([gitHubContributor('xHeaven', 187)]);
+
+    $contributor = User::factory()->create(['handle' => 'jubianchi', 'github_id' => (string) crc32('xHeaven')]);
+    $namesake = User::factory()->create(['handle' => 'xHeaven']);
+
+    expect(resolve(ContributorsQuery::class)->includes($contributor))->toBeTrue()
+        ->and(resolve(ContributorsQuery::class)->includes($namesake))->toBeFalse();
+
+    $github->shouldHaveReceived('contributors')->times(1);
+});
+
+it('includes nobody while GitHub is unreachable', function (): void {
+    $github = $this->mock(GitHubProvider::class);
+    $github->shouldReceive('contributors')->andThrow(new ConnectionException('timeout'));
+
+    expect(resolve(ContributorsQuery::class)->includes(User::factory()->create()))->toBeFalse();
 });
