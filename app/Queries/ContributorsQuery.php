@@ -72,9 +72,9 @@ final readonly class ContributorsQuery
     }
 
     /**
-     * The GitHub accounts behind the contributors. When GitHub doesn't answer, the last list it gave in the past week is
-     * kept for a minute instead, or null when there is none, so an outage neither empties the list nor sends every
-     * visitor to GitHub.
+     * The GitHub accounts behind the contributors. Once there is a list from the past week, nobody waits for GitHub: an
+     * expired list is served for another minute while GitHub is asked after the response, so other visitors don't ask
+     * meanwhile. Without one, GitHub is asked right away, and null means it didn't answer.
      *
      * @return list<Account>|null
      */
@@ -87,44 +87,63 @@ final readonly class ContributorsQuery
         $contributors = Cache::get($key);
 
         if ($contributors === null) {
-            $contributors = [];
+            /** @var list<Account>|null $contributors */
+            $contributors = Cache::get("{$key}:last");
 
-            try {
-                for ($page = 1; $page <= self::MaxPages; $page++) {
-                    $accounts = collect($this->github->contributors($repository, $page, self::PerPage));
-
-                    $contributors = [...$contributors, ...$accounts->where('type', 'User')
-                        ->mapInto(Fluent::class)
-                        ->filter(fn (Fluent $account): bool => $account->string('login')->isNotEmpty()
-                            && is_int($account->get('id'))
-                            && is_int($account->get('contributions'))
-                            && ! in_array($account->string('login')->lower()->value(), self::Agents, true))
-                        ->map(fn (Fluent $account): array => [
-                            'login' => $account->string('login')->value(),
-                            'github_id' => (string) $account->integer('id'),
-                            'commits' => $account->integer('contributions'),
-                        ])
-                        ->values()
-                        ->all()];
-
-                    if ($accounts->count() < self::PerPage) {
-                        break;
-                    }
-                }
-            } catch (HttpClientException) {
-                $contributors = false;
-            }
-
-            if ($contributors === false) {
-                /** @var list<Account>|false $contributors */
-                $contributors = Cache::get("{$key}:last", false);
-                Cache::put($key, $contributors, self::FailedTtl);
+            if ($contributors === null) {
+                $contributors = $this->refresh($repository, $key);
             } else {
-                Cache::put("{$key}:last", $contributors, self::LastTtl);
-                Cache::put($key, $contributors, self::Ttl);
+                Cache::put($key, $contributors, self::FailedTtl);
+                defer(fn (): array|false => $this->refresh($repository, $key));
             }
         }
 
         return $contributors === false ? null : $contributors;
+    }
+
+    /**
+     * Asks GitHub for the list and caches it for an hour, keeping it for a week to fall back on. When GitHub doesn't
+     * answer, that fallback, or false when there is none, is cached for a minute instead.
+     *
+     * @return list<Account>|false
+     */
+    private function refresh(string $repository, string $key): array|false
+    {
+        $contributors = [];
+
+        try {
+            for ($page = 1; $page <= self::MaxPages; $page++) {
+                $accounts = collect($this->github->contributors($repository, $page, self::PerPage));
+
+                $contributors = [...$contributors, ...$accounts->where('type', 'User')
+                    ->mapInto(Fluent::class)
+                    ->filter(fn (Fluent $account): bool => $account->string('login')->isNotEmpty()
+                        && is_int($account->get('id'))
+                        && is_int($account->get('contributions'))
+                        && ! in_array($account->string('login')->lower()->value(), self::Agents, true))
+                    ->map(fn (Fluent $account): array => [
+                        'login' => $account->string('login')->value(),
+                        'github_id' => (string) $account->integer('id'),
+                        'commits' => $account->integer('contributions'),
+                    ])
+                    ->values()
+                    ->all()];
+
+                if ($accounts->count() < self::PerPage) {
+                    break;
+                }
+            }
+        } catch (HttpClientException) {
+            /** @var list<Account>|false $contributors */
+            $contributors = Cache::get("{$key}:last", false);
+            Cache::put($key, $contributors, self::FailedTtl);
+
+            return $contributors;
+        }
+
+        Cache::put("{$key}:last", $contributors, self::LastTtl);
+        Cache::put($key, $contributors, self::Ttl);
+
+        return $contributors;
     }
 }
